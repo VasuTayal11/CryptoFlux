@@ -11,9 +11,9 @@
 #include <thread>
 #include <cmath>
 #include <cstdlib>
-#include <sys/stat.h> // for mkdir
+#include <sys/stat.h>
 #include <sys/types.h>
-#include <direct.h> // for _mkdir on Windows
+#include <direct.h>
 #include <regex>
 #include <windows.h>
 #include <wininet.h>
@@ -39,95 +39,136 @@ struct Transactions
     int sellDay = -1;
     int profit = 0;
 };
-int maxProfitWithBuySell(const vector<int> &prices, vector<Transactions> &transactions)
+
+struct DayPrice
 {
-    int n = prices.size();
-    if (n == 0)
-        return 0;
-
-    vector<int> leftProfit(n, 0), rightProfit(n, 0);
-    vector<int> leftBuy(n, 0), rightSell(n, 0);
-
-    int minPrice = prices[0], minDay = 0;
-    for (int i = 1; i < n; ++i)
-    {
-        if (prices[i] < minPrice)
-        {
-            minPrice = prices[i];
-            minDay = i;
-        }
-        if (prices[i] - minPrice > leftProfit[i - 1])
-        {
-            leftProfit[i] = prices[i] - minPrice;
-            leftBuy[i] = minDay;
-        }
-        else
-        {
-            leftProfit[i] = leftProfit[i - 1];
-            leftBuy[i] = leftBuy[i - 1];
-        }
-    }
-
-    int maxPrice = prices[n - 1], maxDay = n - 1;
-    for (int i = n - 2; i >= 0; --i)
-    {
-        if (prices[i] > maxPrice)
-        {
-            maxPrice = prices[i];
-            maxDay = i;
-        }
-        if (maxPrice - prices[i] > rightProfit[i + 1])
-        {
-            rightProfit[i] = maxPrice - prices[i];
-            rightSell[i] = maxDay;
-        }
-        else
-        {
-            rightProfit[i] = rightProfit[i + 1];
-            rightSell[i] = rightSell[i + 1];
-        }
-    }
-
-    int maxTotalProfit = 0;
-    for (int i = 0; i < n; ++i)
-    {
-        int total = leftProfit[i] + rightProfit[i];
-        if (total > maxTotalProfit)
-        {
-            maxTotalProfit = total;
-            transactions.clear();
-            if (leftProfit[i] > 0)
-                transactions.push_back({leftBuy[i], i, leftProfit[i]});
-            if (rightProfit[i] > 0)
-                transactions.push_back({i, rightSell[i], rightProfit[i]});
-        }
-    }
-
-    return maxTotalProfit;
-}
-
-struct DayPrice {
     string date;
-    double averagePrice;
+    double minPrice;
+    double maxPrice;
 };
 
-int calculateMaxProfitForCoin() {
+// KMP-based pattern matching
+bool patternMatch(const string &text, const string &pattern)
+{
+    string txt = text, pat = pattern;
+    transform(txt.begin(), txt.end(), txt.begin(), ::tolower);
+    transform(pat.begin(), pat.end(), pat.begin(), ::tolower);
+
+    int n = txt.length(), m = pat.length();
+    if (m > n)
+        return false;
+
+    vector<int> lps(m, 0);
+    for (int i = 1, len = 0; i < m;)
+    {
+        if (pat[i] == pat[len])
+        {
+            lps[i++] = ++len;
+        }
+        else if (len > 0)
+        {
+            len = lps[len - 1];
+        }
+        else
+        {
+            lps[i++] = 0;
+        }
+    }
+
+    for (int i = 0, j = 0; i < n;)
+    {
+        if (txt[i] == pat[j])
+        {
+            i++;
+            j++;
+            if (j == m)
+                return true;
+        }
+        else if (j > 0)
+        {
+            j = lps[j - 1];
+        }
+        else
+        {
+            i++;
+        }
+    }
+    return false;
+}
+
+vector<string> loadCoinNames(const string &filename)
+{
+    vector<string> coins;
+    ifstream file(filename);
+    string line;
+
+    // Skip header
+    getline(file, line);
+
+    while (getline(file, line))
+    {
+        stringstream ss(line);
+        string name;
+        getline(ss, name, ',');
+        if (!name.empty())
+        {
+            transform(name.begin(), name.end(), name.begin(), ::tolower);
+            coins.push_back(name);
+        }
+    }
+    return coins;
+}
+
+int calculateMaxProfitForCoin()
+{
     string filename = "prices_30days_minmax.csv";
     string coin;
     cout << "Enter coin name: ";
     cin >> coin;
 
     ifstream file(filename);
-    if (!file) {
+    if (!file)
+    {
         cerr << "File not found.\n";
         return 1;
     }
 
     vector<DayPrice> prices;
-    string line;
-    getline(file, line); // skip header
+    vector<string> knownCoins = loadCoinNames("Prices.csv");
 
-    while (getline(file, line)) {
+    string coinLower = coin;
+    transform(coinLower.begin(), coinLower.end(), coinLower.begin(), ::tolower);
+
+    vector<string> suggestions;
+    for (const auto &knownCoin : knownCoins)
+    {
+        if (patternMatch(knownCoin, coinLower))
+        {
+            suggestions.push_back(knownCoin);
+        }
+    }
+
+    if (!suggestions.empty())
+    {
+        cout << "\t\tDid you mean:\n";
+        for (size_t j = 0; j < suggestions.size(); ++j)
+        {
+            cout << "\t\t[" << j + 1 << "] " << suggestions[j] << endl;
+        }
+        cout << "\t\tEnter the correct number (or 0 to cancel): ";
+        int choice;
+        cin >> choice;
+        if (choice > 0 && choice <= suggestions.size())
+        {
+            coin = suggestions[choice - 1];
+        }
+    }
+
+    string line;
+    getline(file, line);
+
+    while (getline(file, line))
+    {
         stringstream ss(line);
         string date, name, minStr, maxStr;
         getline(ss, date, ',');
@@ -135,47 +176,62 @@ int calculateMaxProfitForCoin() {
         getline(ss, minStr, ',');
         getline(ss, maxStr, ',');
 
-        if (name == coin) {
+        if (name == coin)
+        {
             double minP = stod(minStr);
             double maxP = stod(maxStr);
-            prices.push_back({date, (minP + maxP) / 2});
+            prices.push_back({date, minP, maxP});
         }
     }
 
-    if (prices.size() < 2) {
+    if (prices.size() < 2)
+    {
         cout << "Not enough data to optimize.\n";
         return 0;
     }
 
-    double minPrice = prices[0].averagePrice;
+    double minPrice = prices[0].minPrice;
     string minDate = prices[0].date;
     double maxProfit = 0;
-    string buyDate, sellDate;
+    string buyDate = minDate;
+    string sellDate = prices[0].date;
+    double buyPrice = minPrice;
+    double sellPrice = prices[0].maxPrice;
 
-    for (size_t i = 1; i < prices.size(); ++i) {
-        double profit = prices[i].averagePrice - minPrice;
-        if (profit > maxProfit) {
+    for (size_t i = 1; i < prices.size(); ++i)
+    {
+        double profit = prices[i].maxPrice - minPrice;
+        if (profit > maxProfit)
+        {
             maxProfit = profit;
             buyDate = minDate;
             sellDate = prices[i].date;
+            buyPrice = minPrice;
+            sellPrice = prices[i].maxPrice;
         }
-        if (prices[i].averagePrice < minPrice) {
-            minPrice = prices[i].averagePrice;
+        if (prices[i].minPrice < minPrice)
+        {
+            minPrice = prices[i].minPrice;
             minDate = prices[i].date;
         }
     }
-    cout << fixed << setprecision(0); // Ensures numerical output with 2 decimal places
+
+    cout << fixed << setprecision(2);
     cout << "\n--- Price Optimization for " << coin << " ---\n";
-    if (maxProfit > 0) {
-        cout << "Buy on : " << buyDate << "\n";
-        cout << "Sell on: " << sellDate << "\n";
-        cout << "Max Profit: " << maxProfit <<" INR"<< "\n";
-    } else {
+    if (maxProfit > 0)
+    {
+        cout << "Buy on: " << buyDate << " at " << buyPrice << " INR\n";
+        cout << "Sell on: " << sellDate << " at " << sellPrice << " INR\n";
+        cout << "Max Profit: " << maxProfit << " INR" << "\n";
+    }
+    else
+    {
         cout << "No profitable opportunity found in the given range.\n";
     }
 
     return 0;
 }
+
 string toUpper(const string &input)
 {
     string upper = input;
@@ -222,7 +278,7 @@ public:
         }
 
         string line;
-        getline(file, line); // Skip header
+        getline(file, line);
 
         while (getline(file, line))
         {
@@ -272,7 +328,7 @@ class CryptoApp
         string folderName = to_string(loginID);
         string filePath = "users/" + folderName + "/assets.csv";
 
-        map<string, tuple<double, double>> assets; // name -> (quantity, price)
+        map<string, tuple<double, double>> assets;
         double cashBalance = 0;
 
         ifstream inFile(filePath);
@@ -340,7 +396,6 @@ class CryptoApp
         Transaction tx = {crypto, amount, marketPrice, type, currentTimestamp()};
         transactions.push_back(tx);
 
-        // Update asset file (with fixed + setprecision for normal form)
         ofstream outFile(filePath);
         outFile << fixed << setprecision(0);
         outFile << "Name,Quantity,Price,Total\n";
@@ -353,7 +408,6 @@ class CryptoApp
         }
         outFile.close();
 
-        // Append transaction
         string txFilePath = "users/" + folderName + "/transactions.csv";
         ofstream txFile(txFilePath, ios::app);
         txFile << fixed << setprecision(0);
@@ -365,7 +419,6 @@ class CryptoApp
 
         cout << "✅ Transaction complete. Assets updated.\n";
     }
-
 
     void showTransactions(long loginID)
     {
@@ -380,7 +433,7 @@ class CryptoApp
         }
 
         string line;
-        getline(file, line); // Skip header
+        getline(file, line);
 
         cout << "\nTransaction History:\n";
         while (getline(file, line))
@@ -423,7 +476,6 @@ class CryptoApp
             return;
         }
 
-        // Load prices from prices.csv into a map
         map<string, double> priceMap;
         ifstream priceFile(pricePath);
         if (!priceFile)
@@ -444,9 +496,8 @@ class CryptoApp
         }
         priceFile.close();
 
-        // Now read assets and compute total value
         string line;
-        getline(assetFile, line); // Skip header
+        getline(assetFile, line);
 
         double total = 0.0;
         cout << "\nCurrent Portfolio:\n";
@@ -538,49 +589,84 @@ class CryptoApp
     }
 
 public:
-bool isFileEmpty(const string &filePath) {
-    ifstream file(filePath);
-    return file.peek() == ifstream::traits_type::eof();
-}
-
-void storeCurrentAssets(long loginID)
-{
-    string folderName = to_string(loginID);
-    string filePath = "users/" + folderName + "/assets.csv";
-
-    bool writeHeader = isFileEmpty(filePath);
-
-    ofstream file(filePath, ios::app);
-    file << fixed << setprecision(0);
-
-    if (writeHeader) {
-        file << "Name,Quantity,Price,Total\n";
-    }
-
-    double cash;
-    cout << "\t\tEnter available cash (INR): ";
-    cin >> cash;
-    file << "Cash,0," << cash << "," << cash << "\n";
-
-    int n;
-    cout << "\t\tEnter number of cryptocurrencies you hold: ";
-    cin >> n;
-
-    for (int i = 0; i < n; ++i)
+    bool isFileEmpty(const string &filePath)
     {
-        string name;
-        double quantity, price;
-        cout << "\t\tEnter name of cryptocurrency: ";
-        cin >> name;
-        cout << "\t\tEnter quantity: ";
-        cin >> quantity;
-        cout << "\t\tEnter purchase price per unit (INR): ";
-        cin >> price;
-        file << name << "," << quantity << "," << price << "," << quantity * price << "\n";
+        ifstream file(filePath);
+        return file.peek() == ifstream::traits_type::eof();
     }
 
-    file.close();
-}
+    void storeCurrentAssets(long loginID)
+    {
+        string folderName = to_string(loginID);
+        string filePath = "users/" + folderName + "/assets.csv";
+        string priceFile = "Prices.csv";
+
+        bool writeHeader = isFileEmpty(filePath);
+        ofstream file(filePath, ios::app);
+        file << fixed << setprecision(0);
+
+        if (writeHeader)
+        {
+            file << "Name,Quantity,Price,Total\n";
+        }
+
+        double cash;
+        cout << "\t\tEnter available cash (INR): ";
+        cin >> cash;
+        file << "Cash,0," << cash << "," << cash << "\n";
+
+        int n;
+        cout << "\t\tEnter number of cryptocurrencies you hold: ";
+        cin >> n;
+
+        vector<string> knownCoins = loadCoinNames(priceFile);
+
+        for (int i = 0; i < n; ++i)
+        {
+            string name;
+            double quantity, price;
+
+            cout << "\t\tEnter name of cryptocurrency: ";
+            cin >> name;
+
+            string nameLower = name;
+            transform(nameLower.begin(), nameLower.end(), nameLower.begin(), ::tolower);
+
+            vector<string> suggestions;
+            for (const auto &coin : knownCoins)
+            {
+                if (patternMatch(coin, nameLower))
+                {
+                    suggestions.push_back(coin);
+                }
+            }
+
+            if (!suggestions.empty())
+            {
+                cout << "\t\tDid you mean:\n";
+                for (size_t j = 0; j < suggestions.size(); ++j)
+                {
+                    cout << "\t\t[" << j + 1 << "] " << suggestions[j] << endl;
+                }
+                cout << "\t\tEnter the correct number (or 0 to keep original): ";
+                int choice;
+                cin >> choice;
+                if (choice > 0 && choice <= suggestions.size())
+                {
+                    name = suggestions[choice - 1];
+                }
+            }
+
+            cout << "\t\tEnter quantity: ";
+            cin >> quantity;
+            cout << "\t\tEnter purchase price per unit (INR): ";
+            cin >> price;
+
+            file << name << "," << quantity << "," << price << "," << quantity * price << "\n";
+        }
+
+        file.close();
+    }
 
     void showPrices()
     {
@@ -592,7 +678,7 @@ void storeCurrentAssets(long loginID)
         }
 
         string line, name, price;
-        getline(file, line); // skip header
+        getline(file, line);
 
         cout << left << setw(15) << "\t\tCryptocurrency" << right << setw(15) << "Price (INR)\n";
         cout << "\t\t" << string(30, '-') << "\n";
@@ -687,39 +773,45 @@ struct Credentials
     bool verified;
 };
 
-struct Edge {
+struct Edge
+{
     int from, to;
     double weight;
 };
 
-string stripQuotes(const string& s) {
+string stripQuotes(const string &s)
+{
     if (s.size() >= 2 && s.front() == '"' && s.back() == '"')
         return s.substr(1, s.size() - 2);
     return s;
 }
 
-void findArbitrage() {
+void findArbitrage()
+{
     unordered_map<string, int> currencyIndex;
     unordered_map<string, double> inrPrices;
     vector<string> currencies;
     vector<Edge> edges;
 
     ifstream priceFile("Prices.csv");
-    if (!priceFile.is_open()) {
+    if (!priceFile.is_open())
+    {
         cerr << "Failed to open Prices.csv\n";
         return;
     }
 
     string line;
-    getline(priceFile, line); // skip header
-    while (getline(priceFile, line)) {
+    getline(priceFile, line);
+    while (getline(priceFile, line))
+    {
         stringstream ss(line);
         string name, priceStr;
         getline(ss, name, ',');
         getline(ss, priceStr, ',');
         name = stripQuotes(name);
         priceStr = stripQuotes(priceStr);
-        if (!priceStr.empty()) {
+        if (!priceStr.empty())
+        {
             double price = stod(priceStr);
             inrPrices[name] = price;
         }
@@ -727,26 +819,28 @@ void findArbitrage() {
     priceFile.close();
 
     unordered_map<string, string> nameToSymbol = {
-        {"Bitcoin", "BTC"}, {"Ethereum", "ETH"}, {"Solana", "SOL"},
-        {"Ripple", "XRP"}, {"Dogecoin", "DOGE"}, {"Cardano", "ADA"}
-    };
+        {"Bitcoin", "BTC"}, {"Ethereum", "ETH"}, {"Solana", "SOL"}, {"Ripple", "XRP"}, {"Dogecoin", "DOGE"}, {"Cardano", "ADA"}};
 
-    for (const auto& pair : inrPrices) {
+    for (const auto &pair : inrPrices)
+    {
         string symbol = nameToSymbol[pair.first];
-        if (currencyIndex.find(symbol) == currencyIndex.end()) {
+        if (currencyIndex.find(symbol) == currencyIndex.end())
+        {
             currencyIndex[symbol] = currencies.size();
             currencies.push_back(symbol);
         }
     }
 
     ifstream rateFile("crypto_pairwise_rates_cryptocompare.csv");
-    if (!rateFile.is_open()) {
+    if (!rateFile.is_open())
+    {
         cerr << "Failed to open crypto_pairwise_rates_cryptocompare.csv\n";
         return;
     }
 
-    getline(rateFile, line); // skip header
-    while (getline(rateFile, line)) {
+    getline(rateFile, line);
+    while (getline(rateFile, line))
+    {
         stringstream ss(line);
         string timestamp, from, to, rateStr;
         getline(ss, timestamp, ',');
@@ -757,12 +851,15 @@ void findArbitrage() {
         from = stripQuotes(from);
         to = stripQuotes(to);
         rateStr = stripQuotes(rateStr);
-        if (rateStr.empty()) continue;
+        if (rateStr.empty())
+            continue;
 
         double rate = stod(rateStr);
 
-        for (const string& curr : {from, to}) {
-            if (currencyIndex.find(curr) == currencyIndex.end()) {
+        for (const string &curr : {from, to})
+        {
+            if (currencyIndex.find(curr) == currencyIndex.end())
+            {
                 currencyIndex[curr] = currencies.size();
                 currencies.push_back(curr);
             }
@@ -779,47 +876,59 @@ void findArbitrage() {
     vector<int> parent(n, -1);
     bool arbitrage = false;
 
-    for (int source = 0; source < n; ++source) {
+    for (int source = 0; source < n; ++source)
+    {
         dist.assign(n, numeric_limits<double>::infinity());
         parent.assign(n, -1);
         dist[source] = 0.0;
 
-        for (int i = 0; i < n - 1; ++i) {
-            for (const Edge& e : edges) {
-                if (dist[e.from] + e.weight < dist[e.to]) {
+        for (int i = 0; i < n - 1; ++i)
+        {
+            for (const Edge &e : edges)
+            {
+                if (dist[e.from] + e.weight < dist[e.to])
+                {
                     dist[e.to] = dist[e.from] + e.weight;
                     parent[e.to] = e.from;
                 }
             }
         }
 
-        for (const Edge& e : edges) {
-            if (dist[e.from] + e.weight < dist[e.to]) {
+        for (const Edge &e : edges)
+        {
+            if (dist[e.from] + e.weight < dist[e.to])
+            {
                 arbitrage = true;
                 cout << "Arbitrage opportunity detected!\n";
 
                 vector<int> cycle;
                 int x = e.to;
-                for (int i = 0; i < n; ++i) x = parent[x];
+                for (int i = 0; i < n; ++i)
+                    x = parent[x];
 
                 int cycleStart = x;
                 cycle.push_back(cycleStart);
                 x = parent[cycleStart];
-                while (x != cycleStart && x != -1) {
+                while (x != cycleStart && x != -1)
+                {
                     cycle.push_back(x);
                     x = parent[x];
                 }
-                if (x == -1) {
+                if (x == -1)
+                {
                     cout << "Cycle reconstruction failed.\n";
                     return;
                 }
                 cycle.push_back(cycleStart);
                 reverse(cycle.begin(), cycle.end());
 
-                if (cycle.size() <= 2) {
+                if (cycle.size() <= 2)
+                {
                     cout << "Cycle involves only a single currency: " << currencies[cycleStart] << endl;
                     cout << "No other valid arbitrage cycle found." << endl;
-                } else {
+                }
+                else
+                {
                     cout << "Cycle: ";
                     for (int node : cycle)
                         cout << currencies[node] << " ";
@@ -830,45 +939,67 @@ void findArbitrage() {
         }
     }
 
-    if (!arbitrage) {
+    if (!arbitrage)
+    {
         cout << "No arbitrage opportunity found.\n";
     }
 }
-// struct DayPrice {
-//     string date;
-//     double averagePrice;
-// };
+struct DayPrices
+{
+    string date;
+    double averagePrice;
+};
 
-void analyzeTrend(const vector<DayPrice>& prices, int index, int& inc, int& dec, int& same) {
-    if (index == prices.size() - 1) return;
-
-    if (prices[index].averagePrice < prices[index + 1].averagePrice)
-        inc++;
-    else if (prices[index].averagePrice > prices[index + 1].averagePrice)
-        dec++;
-    else
-        same++;
-
-    analyzeTrend(prices, index + 1, inc, dec, same);
-}
-
-void trendAnalysis() {
+void trendAnalysis()
+{
     string filename = "prices_30days_minmax.csv"; // your file name
     string coin;
     cout << "Enter coin name: ";
     cin >> coin;
 
     ifstream file(filename);
-    if (!file) {
+    if (!file)
+    {
         cerr << "Failed to open file." << endl;
-        return ;
+        return;
     }
 
     string line;
-    vector<DayPrice> coinPrices;
+    vector<DayPrices> coinPrices;
 
-    getline(file, line); // skip header
-    while (getline(file, line)) {
+    vector<string> knownCoins = loadCoinNames("Prices.csv");
+
+    string coinLower = coin;
+    transform(coinLower.begin(), coinLower.end(), coinLower.begin(), ::tolower);
+
+    vector<string> suggestions;
+    for (const auto &knownCoin : knownCoins)
+    {
+        if (patternMatch(knownCoin, coinLower))
+        {
+            suggestions.push_back(knownCoin);
+        }
+    }
+
+    if (!suggestions.empty())
+    {
+        cout << "\t\tDid you mean:\n";
+        for (size_t j = 0; j < suggestions.size(); ++j)
+        {
+            cout << "\t\t[" << j + 1 << "] " << suggestions[j] << endl;
+        }
+        cout << "\t\tEnter the correct number (or 0 to cancel): ";
+        int choice;
+        cin >> choice;
+        if (choice > 0 && choice <= suggestions.size())
+        {
+            coin = suggestions[choice - 1];
+        }
+    }
+
+    getline(file, line);
+    while (getline(file, line))
+    {
         stringstream ss(line);
         string date, name, minStr, maxStr;
         getline(ss, date, ',');
@@ -876,7 +1007,8 @@ void trendAnalysis() {
         getline(ss, minStr, ',');
         getline(ss, maxStr, ',');
 
-        if (name == coin) {
+        if (name == coin)
+        {
             double minP = stod(minStr);
             double maxP = stod(maxStr);
             coinPrices.push_back({date, (minP + maxP) / 2});
@@ -885,14 +1017,33 @@ void trendAnalysis() {
 
     file.close();
 
-    if (coinPrices.size() < 2) {
+    if (coinPrices.size() < 2)
+    {
         cout << "Not enough data to analyze trend.\n";
-        return ;
+        return;
     }
 
     int inc = 0, dec = 0, same = 0;
-    analyzeTrend(coinPrices, 0, inc, dec, same);
 
+    // Function to analyze trend recursively
+    function<void(int)> analyzeTrendHelper = [&](int index)
+    {
+        if (index == coinPrices.size() - 1)
+            return;
+
+        if (coinPrices[index].averagePrice < coinPrices[index + 1].averagePrice)
+            inc++;
+        else if (coinPrices[index].averagePrice > coinPrices[index + 1].averagePrice)
+            dec++;
+        else
+            same++;
+
+        analyzeTrendHelper(index + 1);
+    };
+
+    analyzeTrendHelper(0);
+
+    cout << fixed << setprecision(2);
     cout << "\n--- Price Trend Analysis for " << coin << " ---\n";
     cout << "Days Up     : " << inc << "\n";
     cout << "Days Down   : " << dec << "\n";
@@ -904,10 +1055,194 @@ void trendAnalysis() {
         cout << "Overall Trend: Mostly Decreasing\n";
     else
         cout << "Overall Trend: Highly Fluctuating / Stable\n";
-
-    return ;
 }
 
+struct CryptoAsset
+{
+    string name;
+    double price;
+    int priority;
+
+    double valueToPriceRatio() const
+    {
+        return static_cast<double>(priority) / price;
+    }
+};
+
+vector<CryptoAsset> readPricesCSV(const string &filename)
+{
+    vector<CryptoAsset> assets;
+    ifstream file(filename);
+    string line;
+
+    if (!file.is_open())
+    {
+        cerr << "Failed to open Prices.csv\n";
+        return assets;
+    }
+
+    getline(file, line);
+
+    while (getline(file, line))
+    {
+        stringstream ss(line);
+        string name, priceStr;
+        getline(ss, name, ',');
+        getline(ss, priceStr);
+
+        CryptoAsset asset;
+        asset.name = name;
+        asset.price = stod(priceStr);
+        asset.priority = 0;
+        assets.push_back(asset);
+    }
+
+    return assets;
+}
+
+vector<CryptoAsset> knapsackSelectAssets(vector<CryptoAsset> &assets, double budget, double &totalSpent, int &totalPriority)
+{
+    int n = assets.size();
+    int W = static_cast<int>(budget);
+    vector<vector<int>> dp(n + 1, vector<int>(W + 1, 0));
+
+    for (int i = 1; i <= n; ++i)
+    {
+        int wt = static_cast<int>(assets[i - 1].price);
+        int val = assets[i - 1].priority;
+        for (int w = 0; w <= W; ++w)
+        {
+            if (wt <= w)
+                dp[i][w] = max(dp[i - 1][w], dp[i - 1][w - wt] + val);
+            else
+                dp[i][w] = dp[i - 1][w];
+        }
+    }
+
+    vector<CryptoAsset> selected;
+    double spent = 0;
+    int w = W;
+    for (int i = n; i > 0 && w > 0; --i)
+    {
+        int wt = static_cast<int>(assets[i - 1].price);
+        if (dp[i][w] != dp[i - 1][w] && wt <= w)
+        {
+            selected.push_back(assets[i - 1]);
+            spent += assets[i - 1].price;
+            totalPriority += assets[i - 1].priority;
+            w -= wt;
+        }
+    }
+
+    totalSpent = spent;
+    return selected;
+}
+
+vector<tuple<string, double, double, double, bool>> fractionalKnapsackSelectAssets(vector<CryptoAsset> &assets, double budget, double &totalSpent, double &totalPriority)
+{
+    sort(assets.begin(), assets.end(), [](const CryptoAsset &a, const CryptoAsset &b)
+         { return a.valueToPriceRatio() > b.valueToPriceRatio(); });
+
+    vector<tuple<string, double, double, double, bool>> selected;
+    double remaining = budget;
+    totalSpent = 0;
+    totalPriority = 0;
+
+    for (const auto &asset : assets)
+    {
+        if (remaining <= 0)
+            break;
+
+        if (asset.price <= remaining)
+        {
+            double quantity = 1.0;
+            selected.emplace_back(asset.name, asset.price, quantity, asset.priority, false);
+            totalSpent += asset.price;
+            totalPriority += asset.priority;
+            remaining -= asset.price;
+        }
+        else
+        {
+            double spent = remaining;
+            double quantity = spent / asset.price;
+            double priorityValue = (asset.priority * spent) / asset.price;
+
+            selected.emplace_back(asset.name, spent, quantity, priorityValue, true);
+            totalSpent += spent;
+            totalPriority += priorityValue;
+            remaining = 0;
+        }
+    }
+
+    return selected;
+}
+
+void selectAssetsAndCalculatePriority()
+{
+    string pricesFile = "Prices.csv";
+    auto assets = readPricesCSV(pricesFile);
+
+    if (assets.empty())
+    {
+        cerr << "No assets loaded. Exiting.\n";
+        return;
+    }
+
+    cout << "Assign priority (higher = more important) for each asset:\n";
+    for (auto &asset : assets)
+    {
+        cout << asset.name << " (" << fixed << setprecision(2) << asset.price << " INR): ";
+        cin >> asset.priority;
+    }
+
+    double budget;
+    cout << "\nEnter your total INR budget: ";
+    cin >> budget;
+
+    double totalSpent01 = 0;
+    int totalPriority01 = 0;
+    auto selected01 = knapsackSelectAssets(assets, budget, totalSpent01, totalPriority01);
+
+    cout << "\n=== 0/1 Knapsack Allocated Portfolio ===\n";
+    cout << left << setw(12) << "Name" << setw(14) << "Price(INR)" << "Priority\n";
+    for (const auto &asset : selected01)
+    {
+        cout << left << setw(12) << asset.name
+             << setw(14) << fixed << setprecision(2) << asset.price
+             << asset.priority << "\n";
+    }
+    cout << "\nTotal Spent: " << fixed << setprecision(2) << totalSpent01 << " INR"
+         << "\nRemaining Budget: " << fixed << setprecision(2) << (budget - totalSpent01) << " INR"
+         << "\nTotal Priority Score: " << totalPriority01 << "\n";
+
+    double totalSpentFrac = 0;
+    double totalPriorityFrac = 0;
+    auto selectedFrac = fractionalKnapsackSelectAssets(assets, budget, totalSpentFrac, totalPriorityFrac);
+
+    cout << "\n=== Fractional Knapsack Allocated Portfolio ===\n";
+    cout << left << setw(12) << "Name" << setw(14) << "Price(INR)" << setw(12) << "Quantity" << "Priority\n";
+    for (const auto &[name, spent, qty, prio, isFractional] : selectedFrac)
+    {
+        cout << left << setw(12) << name
+             << setw(14) << fixed << setprecision(2) << spent
+             << setw(12) << fixed << setprecision(4) << qty
+             << fixed << setprecision(2) << prio;
+        if (isFractional)
+            cout << " (Fractional)";
+        cout << "\n";
+    }
+
+    cout << "\nTotal Spent: " << fixed << setprecision(2) << totalSpentFrac << " INR"
+         << "\nRemaining Budget: " << fixed << setprecision(2) << (budget - totalSpentFrac) << " INR"
+         << "\nTotal Priority Score: " << fixed << setprecision(2) << totalPriorityFrac << "\n";
+
+    // Final result
+    cout << "\n=== Final Results ===\n";
+    if (totalPriority01 > totalPriorityFrac)
+        cout << "\n0/1 Knapsack gives the maximum priority score of " << totalPriority01 << "\n";
+    else
+        cout << "\nFractional Knapsack gives the maximum priority score of " << fixed << setprecision(2) << totalPriorityFrac << "\n";
+}
 
 int mainMenu(Credentials user)
 {
@@ -926,24 +1261,23 @@ int mainMenu(Credentials user)
         cout << "\t\t***                                ***\n";
         cout << "\t\t**************************************\n";
 
-        // cout << "\nEnter your choice : ";
         cout << "\n\t\t 1. View Prices. \n";
         cout << "\n\t\t 2. Enter Current Holdings. \n";
         cout << "\n\t\t 3. Portfolio Menu. \n";
         cout << "\n\t\t 4. Profitability Analysis. \n";
         cout << "\n\t\t 5. Find Arbitrage. \n";
         cout << "\n\t\t 6. Trend Analysis. \n";
-        cout << "\n\t\t 7. LogOut. \n";
-        cout << "\n\t\t 8. Exit ";
+        cout << "\n\t\t 7. Budget Allocator. \n";
+        cout << "\n\t\t 8. LogOut. \n";
+        cout << "\n\t\t 9. Exit ";
         cout << "\n";
         cout << "\n Enter your choice: \n --> ";
         cin >> choice;
         cout << endl;
         CryptoApp app;
-        // Use the passed-in choice only once; get new input afterward
-        if (choice < 1 || choice > 8)
+        if (choice < 1 || choice > 9)
         {
-            choice = getValidInput("Enter choice: ", 1, 8);
+            choice = getValidInput("Enter choice: ", 1, 9);
         }
 
         switch (choice)
@@ -967,19 +1301,20 @@ int mainMenu(Credentials user)
             trendAnalysis();
             break;
         case 7:
-            homePage();
+            selectAssetsAndCalculatePriority();
             break;
         case 8:
+            homePage();
+            break;
+        case 9:
             escape();
             mainMenu(user);
         }
 
-        // Reset choice to an invalid number to prompt for input next loop
         choice = -1;
     }
 }
 
-// Function prototypes
 bool validateDOB(int dob);
 bool validateName(const string &name);
 bool loginIDExists(long loginID);
@@ -988,8 +1323,7 @@ bool readCredentialsFromFile(long loginID, long password);
 
 void login()
 {
-    // sleep(1);
-    system("cls"); // Note: system("cls") works on Windows only
+    system("cls");
     system("color E1");
 
     Credentials user;
@@ -1061,7 +1395,6 @@ void createUserDirectory(long loginID)
     string baseDir = "users";
     string userDir = baseDir + "/" + to_string(loginID);
 
-    // Create user-specific directory
     if (MKDIR(userDir.c_str()) == 0)
     {
         // cout << "✅ Directory created for user: " << userDir << endl;
@@ -1199,7 +1532,6 @@ bool loginIDExists(long loginID)
 
 void writeCredentialsToFile(long loginID, long password)
 {
-    // Open file for appending
     ofstream file("Credentials.csv", ios::app);
     if (!file.is_open())
     {
@@ -1207,22 +1539,21 @@ void writeCredentialsToFile(long loginID, long password)
         return;
     }
 
-    // Write login credentials in the format "loginID,password"
     file << loginID << "," << password << "\n";
 
-    file.close(); // Automatically flushes and closes the file
+    file.close();
 }
 
 void escape()
 {
     cout << "\nAre you sure you want to exit? (YES/NO)--- ";
     char ch;
-    cin.ignore(); // Clear input buffer
+    cin.ignore();
     cin.get(ch);
 
     if (ch == 'Y' || ch == 'y')
     {
-        system("cls"); // Windows-specific
+        system("cls");
         system("color 3E");
 
         cout << "\n\t\t\t\t\t\t  ________________________________________________________________________";
@@ -1244,11 +1575,10 @@ void escape()
 }
 void homePage()
 {
-    system("cls");      // Use "clear" on Linux/macOS
-    system("color 17"); // Windows-specific; ignored on UNIX
+    system("cls");
+    system("color 17");
     int choice;
 
-    // Display the TaskMaster X logo and menu options
     cout << "\n  _____________________________________________________________________\n";
     cout << "||                                                                     ||\n";
     cout << "||   \\      /\\      / |===== |      |====== /=====\\ |\\    /| |=====    ||\n";
@@ -1264,7 +1594,7 @@ void homePage()
     cout << "ENTER YOUR CHOICE: ";
     cin >> choice;
     cout << "\nLoading.....\n";
-    sleep(1); // use Sleep(1000) if using <windows.h>
+    sleep(1);
 
     switch (choice)
     {
@@ -1281,11 +1611,11 @@ void homePage()
     default:
         homePage();
     }
-}; // Forward declaration
+};
 
 int main()
 {
     // Call the PowerShell script to update prices.csv
-    // system("powershell.exe -ExecutionPolicy Bypass -File fetch-prices-inr.ps1");
+    system("powershell.exe -ExecutionPolicy Bypass -File fetch-prices-inr.ps1");
     homePage();
 }
